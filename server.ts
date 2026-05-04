@@ -15,44 +15,57 @@ async function startServer() {
   // API Route to check Adhahi availability
   app.get("/api/check", async (req, res) => {
     try {
-      // User agent to avoid bot detection
-      const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-      
+      // Rotate common user agents
+      const userAgents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+      ];
+      const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
+
       const response = await axios.get("https://adhahi.dz/register", {
         headers: {
-          "User-Agent": userAgent,
-          "Accept-Language": "ar,fr;q=0.9,en;q=0.8",
+          "User-Agent": randomUA,
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+          "Accept-Language": "ar-DZ,ar;q=0.9,fr-FR;q=0.8,fr;q=0.7,en-US;q=0.6,en;q=0.5",
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache"
         },
-        timeout: 10000,
+        timeout: 15000, // Increase timeout to 15s
+        validateStatus: () => true // Accept any status code to debug
       });
 
-      const $ = cheerio.load(response.data);
-      
-      // Based on common "No Adhahi" patterns, we look for messages like "لا توجد أضاحي متوفرة"
-      const pageText = $("body").text();
-      const hasAvailability = !pageText.includes("لا توجد أضاحي متوفرة") && !pageText.includes("متوفرة حاليا");
+      if (response.status !== 200) {
+        throw new Error(`الموقع استجاب برمز خطأ: ${response.status}`);
+      }
 
-      // We can also look for the dropdown of wilayas if it exists
+      const $ = cheerio.load(response.data);
+      const pageText = $("body").text();
+      
+      // Keywords that typically indicate unavailability in Algeria's Adhahi platform
+      const noStrockKeywords = ["لا توجد", "غير متوفر", "نفدت", "متوفرة حاليا", "انتهاء العملية"];
+      const hasAvailability = !noStrockKeywords.some(kw => pageText.includes(kw));
+
       const wilayas: string[] = [];
-      $("select[name='wilaya'] option").each((_, el) => {
+      $("select[name='wilaya'] option, select#wilaya option").each((_, el) => {
         const text = $(el).text().trim();
-        if (text && !text.includes("إختر")) {
+        if (text && !text.includes("إختر") && !text.includes("Sélectionner")) {
           wilayas.push(text);
         }
       });
 
       res.json({
         success: true,
-        available: hasAvailability,
+        available: hasAvailability || wilayas.length > 0,
         wilayas: wilayas,
         timestamp: new Date().toISOString(),
       });
     } catch (error: any) {
-      console.error("Error checking adhahi.dz:", error.message);
+      console.error("Scraping error:", error.message);
       res.status(500).json({
         success: false,
-        error: "Could not reach adhahi.dz. The site might be down or protected.",
-        message: error.message
+        error: "فشل الوصول لموقع الأضاحي. قد يكون الموقع مغلقاً للصيانة أو محجوباً عن الخادم.",
+        details: error.message
       });
     }
   });

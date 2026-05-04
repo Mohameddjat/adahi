@@ -24,53 +24,64 @@ export default function App() {
   const [history, setHistory] = useState<{ time: string; status: boolean }[]>([]);
 
   const requestNotificationPermission = async () => {
-    if (!("Notification" in window)) {
-      alert("هذا المتصفح لا يدعم التنبيهات.");
-      return;
+    try {
+      if (!("Notification" in window)) {
+        console.warn("Notifications not supported");
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      setNotificationsEnabled(permission === "granted");
+    } catch (err) {
+      console.error("Notification permission error:", err);
     }
-    const permission = await Notification.requestPermission();
-    setNotificationsEnabled(permission === "granted");
   };
 
   const sendNotification = (message: string) => {
-    if (notificationsEnabled && Notification.permission === "granted") {
-      new Notification("تنبيه الأضاحي", {
-        body: message,
-        icon: "/vite.svg",
-      });
+    try {
+      if (notificationsEnabled && Notification.permission === "granted") {
+        new Notification("تنبيه الأضاحي", {
+          body: message,
+          icon: "/vite.svg",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to send notification:", err);
     }
   };
 
   const checkAvailability = useCallback(async () => {
     try {
       const response = await fetch("/api/check");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `خطأ في الخادم (${response.status})`);
+      }
+      
       const data = await response.json();
 
       if (data.success) {
         const isAvailable = data.available;
         const foundWilayas = data.wilayas || [];
         
-        // Match specific wilaya in Arabic or French strings
-        const wilayaSpecificMatch = selectedWilaya && foundWilayas.some((w: string) => w.includes(selectedWilaya));
+        const wilayaSpecificMatch = selectedWilaya && foundWilayas.some((w: string) => w.toString().includes(selectedWilaya));
         
-        // Decision logic: Notify if something is available or selected wilaya is in the list
         if (isAvailable || (selectedWilaya && wilayaSpecificMatch)) {
           sendNotification(`أخبار جيدة! الأضاحي قد تكون متوفرة ${selectedWilaya ? `في ولاية ${selectedWilaya}` : ""}`);
         }
 
         setStatus({
-          lastChecked: new Date().toLocaleTimeString(),
+          lastChecked: new Date().toLocaleTimeString("ar-DZ", { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           isAvailable: isAvailable || wilayaSpecificMatch,
           wilayasFound: foundWilayas,
           error: null,
         });
 
-        setHistory(prev => [{ time: new Date().toLocaleTimeString(), status: isAvailable || wilayaSpecificMatch }, ...prev].slice(0, 10));
+        setHistory(prev => [{ time: new Date().toLocaleTimeString("ar-DZ"), status: isAvailable || wilayaSpecificMatch }, ...prev].slice(0, 10));
       } else {
-        setStatus(prev => ({ ...prev, error: data.error || "خطأ غير معروف" }));
+        setStatus(prev => ({ ...prev, error: data.error || "خطأ غير متوقع" }));
       }
-    } catch (err) {
-      setStatus(prev => ({ ...prev, error: "تعذر الاتصال بالخادم" }));
+    } catch (err: any) {
+      setStatus(prev => ({ ...prev, error: err.message || "تعذر الاتصال بالخادم" }));
     }
   }, [selectedWilaya, notificationsEnabled]);
 
@@ -140,25 +151,35 @@ export default function App() {
                   بمجرد فتح باب التسجيل في ولايتك المحددة، سنرسل لك تنبيهاً فورياً.
                 </p>
 
-                <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-10 text-center">
+                <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl p-6 md:p-10 text-center relative">
                   <AnimatePresence mode="wait">
                     {status.error ? (
                       <motion.div 
+                        key="error"
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                         className="flex flex-col items-center gap-3 text-red-600"
                       >
                         <AlertTriangle size={32} />
                         <p className="font-bold text-lg">خطأ في الاتصال بالموقع</p>
-                        <p className="text-sm opacity-80">{status.error}</p>
+                        <p className="text-sm opacity-80 mb-4">{status.error}</p>
+                        <button 
+                          onClick={checkAvailability}
+                          className="px-6 py-2 bg-red-600 text-white rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-red-700 transition-colors"
+                        >
+                          <RefreshCw size={16} /> إعادة المحاولة
+                        </button>
                       </motion.div>
                     ) : (
                       <motion.div
-                        key={status.lastChecked}
+                        key={status.lastChecked || "idle"}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         className="space-y-2"
                       >
-                        <p className="text-2xl font-bold text-slate-600">
+                        <div className="flex justify-center mb-4 text-emerald-600">
+                          {status.isAvailable ? <CheckCircle2 size={48} /> : <Clock size={48} className="text-slate-300" />}
+                        </div>
+                        <p className="text-xl md:text-2xl font-bold text-slate-600">
                           {isMonitoring 
                             ? (status.isAvailable ? "أضاحي متوفرة الآن!" : "لا توجد أضاحي متوفرة حالياً")
                             : "بدء المراقبة لتحديث الحالة"}
@@ -166,6 +187,15 @@ export default function App() {
                         <p className="text-sm text-slate-400">
                           آخر تحديث: {status.lastChecked ? status.lastChecked : "لم يتم الفحص بعد"}
                         </p>
+                        
+                        {!isMonitoring && (
+                          <button 
+                            onClick={checkAvailability}
+                            className="mt-6 px-6 py-2 bg-emerald-600 text-white rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-emerald-700 transition-colors mx-auto"
+                          >
+                            <RefreshCw size={16} /> فحص يدوي الآن
+                          </button>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>

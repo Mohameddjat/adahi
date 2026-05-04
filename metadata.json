@@ -1,0 +1,6 @@
+{
+  "name": "راصد الأضاحي الجزائر",
+  "description": "تطبيق لمراقبة توفر الأضاحي على منصة adhahi.dz وتنبيه المستخدمين فور توفرها في ولاياتهم.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

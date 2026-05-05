@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Bell, BellOff, RefreshCw, MapPin, CheckCircle2, XCircle, Clock, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Bell, BellOff, RefreshCw, MapPin, CheckCircle2, Clock, AlertTriangle, ShieldCheck } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { ALGERIA_WILAYAS } from "./constants";
 
@@ -8,6 +8,7 @@ interface MonitorStatus {
   isAvailable: boolean;
   wilayasFound: string[];
   error: string | null;
+  details?: string;
 }
 
 export default function App() {
@@ -41,7 +42,6 @@ export default function App() {
       if (notificationsEnabled && Notification.permission === "granted") {
         new Notification("تنبيه الأضاحي", {
           body: message,
-          icon: "/vite.svg",
         });
       }
     } catch (err) {
@@ -60,25 +60,26 @@ export default function App() {
       const data = await response.json();
 
       if (data.success) {
-        const isAvailable = data.available;
-        const foundWilayas = data.wilayas || [];
+        const isAvailable = !!data.available;
+        const foundWilayas = Array.isArray(data.wilayas) ? data.wilayas : [];
         
-        const wilayaSpecificMatch = selectedWilaya && foundWilayas.some((w: string) => w.toString().includes(selectedWilaya));
+        const wilayaSpecificMatch = !!(selectedWilaya && foundWilayas.some((w: any) => w?.toString().includes(selectedWilaya)));
         
-        if (isAvailable || (selectedWilaya && wilayaSpecificMatch)) {
+        if (isAvailable || wilayaSpecificMatch) {
           sendNotification(`أخبار جيدة! الأضاحي قد تكون متوفرة ${selectedWilaya ? `في ولاية ${selectedWilaya}` : ""}`);
         }
 
+        const now = new Date().toLocaleTimeString("ar-DZ", { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setStatus({
-          lastChecked: new Date().toLocaleTimeString("ar-DZ", { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          lastChecked: now,
           isAvailable: isAvailable || wilayaSpecificMatch,
           wilayasFound: foundWilayas,
           error: null,
         });
 
-        setHistory(prev => [{ time: new Date().toLocaleTimeString("ar-DZ"), status: isAvailable || wilayaSpecificMatch }, ...prev].slice(0, 10));
+        setHistory(prev => [{ time: now, status: isAvailable || wilayaSpecificMatch }, ...prev].slice(0, 10));
       } else {
-        setStatus(prev => ({ ...prev, error: data.error || "خطأ غير متوقع" }));
+        setStatus(prev => ({ ...prev, error: data.error || "خطأ غير متوقع", details: data.details }));
       }
     } catch (err: any) {
       setStatus(prev => ({ ...prev, error: err.message || "تعذر الاتصال بالخادم" }));
@@ -91,12 +92,14 @@ export default function App() {
 
     if (isMonitoring) {
       checkAvailability();
-      interval = setInterval(checkAvailability, 60000); // Check every 1 minute
+      interval = setInterval(checkAvailability, 60000); 
       
       setNextCheckIn(60);
       countdown = setInterval(() => {
         setNextCheckIn(prev => (prev > 0 ? prev - 1 : 60));
       }, 1000);
+    } else {
+      setNextCheckIn(60);
     }
 
     return () => {
